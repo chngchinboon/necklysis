@@ -5,6 +5,7 @@ from pydicom.filereader import dcmread, read_dicomdir
 from glob import glob
 import cv2
 
+
 mode = 0
 spinepoints = []
 skinpoints = []
@@ -50,27 +51,65 @@ def main():
 
     gui(args)
 
+
 def generatereport(args):
     print('Generating report')
+
 
 def capmouseclick(event, x, y, flags, param):
     global spinepoints, skinpoints, mode
     if event == cv2.EVENT_LBUTTONDOWN:
         if mode == 0:
             spinepoints.append((x, y))
-            image_points(param, spinepoints, 0)
+
         else:
             skinpoints.append((x, y))
-            image_points(param, skinpoints, 1)
 
-    print(f'Spine Points: {spinepoints}, Skin Points: {skinpoints}')
+        print(f'Spine Points: {spinepoints}, Skin Points: {skinpoints}')
 
-def image_points(image, points, mode):
-    colors = ((0,65535,00),(0,0,65535))
+
+def drawimage_points(image, points, mode):
+    colors = ((0, 65535, 00), (0, 0, 65535))
     for point in points:
         cv2.circle(image, point, 3, colors[mode])
 
+
+def drawcurve(img, coeff, mode):
+    colors = ((65535, 65535, 00), (65535, 0, 65535))
+    w, h, _ = img.shape
+    f = np.poly1d(coeff)
+    x = np.arange(w)
+    y = f(x)
+    for point in zip(y.astype(int), x.astype(int)):
+        cv2.circle(img, point, 1, colors[mode])
+
+
+def writeoutputtofile(args):
+    print('Writing output to file')
+
+
+def writeimgtofile(args):
+    print('Writing image to file')
+
+
+def fitline(points):
+    print('Fitting line')
+    # assuming incoming array is [(x1,y1),(x2,y2),....]
+    x,y = np.split(points,[1],axis=1)
+
+    fitcoeff = np.polyfit(np.squeeze(x),np.squeeze(y), 5)
+    print(fitcoeff)
+
+    return fitcoeff
+
+def plotlineonimg(coeff):
+    print('writing line to image')
+
+def write_instructions(image):
+    print('Refreshing instructions')
+
 def gui(args):
+    global spinepoints, skinpoints
     # do something
     print('running gui')
     image = dcmread(args.filepath).pixel_array
@@ -81,34 +120,72 @@ def gui(args):
 
     cv2.namedWindow(args.filepath,cv2.WINDOW_NORMAL)
     cv2.imshow(args.filepath, imageshow)
-    cv2.setMouseCallback(args.filepath, capmouseclick, imageshow)
-    mode = True
+    cv2.setMouseCallback(args.filepath, capmouseclick)
+    global mode
+    mode = 0
+    numspine = 0
+    numskin = 0
 
     key = ''
     while True:
         key = cv2.waitKey(1) & 0xff
-        cv2.imshow(args.filepath,imageshow)
+        currnumspine = len(spinepoints)
+        currnumskin = len(skinpoints)
+        if currnumspine != numspine or currnumskin != numskin:
+            numspine = currnumspine
+            numskin = currnumskin
 
+            # reload original image
+            imageshow = image.copy()
 
+            # Draw points
+            drawimage_points(imageshow, spinepoints, 0)
+            drawimage_points(imageshow, skinpoints, 1)
+
+            # drawcurve
+            if numspine > 2:
+                # generating line
+                print('Num. Spine points >2: attempting to fit line')
+                spinecoeff = fitline(spinepoints)
+                drawcurve(imageshow, spinecoeff, 0)
+
+            if numskin > 2:
+                # generating line
+                print('Num. Skin points >2: attempting to fit line')
+                spinecoeff = fitline(skinpoints)
+                drawcurve(imageshow, spinecoeff, 1)
 
         if key == ord('q'):
             break
         if key == ord('m'):
             if mode:
                 mode = 0
+                print('Adding points to spine')
             else:
                 mode = 1
+                print('Adding points to skin')
+
         if key == ord('z'):
-            if mode == 0:
+            if mode == 0 and numspine > 0:
                 spinepoints.pop()
-                imageshow = image.copy()
-            else:
+            elif mode == 1 and numskin >0:
                 skinpoints.pop()
-                imageshow = image.copy()
-            break
+            print(f'Spine Points: {spinepoints}, Skin Points: {skinpoints}')
+
+
+        if key == ord('r'):
+            imageshow = image.copy()
+
+        cv2.imshow(args.filepath, imageshow)
 
     cv2.destroyAllWindows()
     generatereport(args)
+
+    if args.outputstats:
+        writeoutputtofile(args)
+    if args.outputimg:
+        writeimgtofile(args)
+
 
 if __name__ ==  "__main__":
 
